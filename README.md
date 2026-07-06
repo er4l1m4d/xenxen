@@ -12,11 +12,13 @@ Reads your local OpenCode database and shows you how you're using AI — which m
 - Shows which tools you use most
 - Tracks your daily usage over time
 - Shows token usage (input, output, reasoning, cache)
+- **Tracks your daily usage against OpenCode Zen's free tier limits** — see how many requests and tokens you've used today vs the limit, with color-coded progress bars
 
 ## Features
 
 - **Usage analytics** — see which models, projects, and tools you use most
 - **Token tracking** — monitor input, output, reasoning, and cache tokens
+- **Daily limit tracking** — progress bars showing requests (out of 100/day) and tokens (configurable limit)
 - **Live dashboard** — colorful screen that updates automatically
 - **Mini mode** — tiny one-line summary for status bars
 - **CSV export** — save your stats to a file for Excel or analysis
@@ -33,7 +35,39 @@ cd xenxen
 cargo build --release
 ```
 
-Binary will be at `target/release/xenxen`.
+The built binary will be at `target/release/xenxen`.
+
+### Running xenxen
+
+#### Option A: Run from the build folder (no install needed)
+
+After building, run the binary directly using its path:
+
+```bash
+./target/release/xenxen          # Linux/macOS
+.\target\release\xenxen          # Windows PowerShell
+```
+
+#### Option B: Install globally (use from any folder)
+
+This copies the binary to your Cargo bin directory so `xenxen` works everywhere:
+
+```bash
+cargo install --path .
+```
+
+> If PowerShell gives an error about `--path`, use quotes: `cargo install --path "."`
+
+After this, `xenxen` will work from any terminal window. Your Cargo bin directory (`%USERPROFILE%\.cargo\bin` on Windows, `~/.cargo/bin` on Linux/macOS) is added to PATH automatically when Rust is installed. If it doesn't work, restart your terminal or add it to PATH manually.
+
+#### Option C: Download a pre-built binary
+
+Download from releases for your platform:
+- `xenxen-x86_64-pc-windows-msvc.exe` — Windows
+- `xenxen-x86_64-unknown-linux-gnu` — Linux
+- `xenxen-x86_64-apple-darwin` — macOS
+
+Place the downloaded file anywhere in your PATH. Then run `xenxen` from any folder.
 
 ## How to Use xenxen (Easy Guide)
 
@@ -46,6 +80,8 @@ Just type this and press Enter:
 ```bash
 xenxen
 ```
+
+> If `xenxen` is not recognized, you haven't installed it globally yet. See [Installation](#installation) above, or run `.\target\release\xenxen` from the project folder.
 
 A colorful screen will appear showing your usage. It updates automatically every 5 seconds.
 
@@ -87,13 +123,6 @@ It shows something like: `61 sessions | 1.2M tokens | 5 today`
 
 That's it! xenxen shows you how you're using OpenCode so you can understand your usage patterns.
 
-### Pre-built binaries
-
-Download from releases for your platform:
-- `xenxen-x86_64-pc-windows-msvc.exe` — Windows
-- `xenxen-x86_64-unknown-linux-gnu` — Linux
-- `xenxen-x86_64-apple-darwin` — macOS
-
 ## Usage
 
 ### Interactive dashboard (default)
@@ -115,7 +144,7 @@ xenxen stats --json            # JSON output
 ```bash
 xenxen --mini
 # Output:
-# 61 sessions | 1.2M tokens | 45K today
+# 61 sessions | 1.2M tokens | today: 12/100 req, 45K/1.0M tokens
 ```
 
 ### Export to CSV
@@ -147,6 +176,7 @@ Located at `~/.config/xenxen/config.toml`:
 
 ```toml
 refresh_interval_secs = 5
+daily_limit_tokens = 1000000
 ```
 
 ### Fields
@@ -154,6 +184,12 @@ refresh_interval_secs = 5
 | Field | Default | Description |
 |-------|---------|-------------|
 | `refresh_interval_secs` | `5` | Dashboard refresh interval in seconds |
+| `daily_limit_tokens` | `1000000` | Daily token limit (input + output) for progress tracking |
+
+### Daily Limits
+
+- **Requests**: 100 per day (OpenCode Zen free tier limit, hardcoded)
+- **Tokens**: Configurable via `daily_limit_tokens` (default: 1M)
 
 ## Database detection
 

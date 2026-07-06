@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-xenxen is a Rust TUI dashboard that reads the local OpenCode SQLite database and displays usage analytics for your AI sessions.
+xenxen is a Rust TUI dashboard that reads the local OpenCode SQLite database and displays usage analytics for your AI sessions, including tracking against daily free-tier limits.
 
 ## Architecture
 
@@ -10,7 +10,7 @@ xenxen is a Rust TUI dashboard that reads the local OpenCode SQLite database and
 src/
   main.rs       — CLI entry point (clap), subcommands, stats, CSV export
   db.rs         — SQLite queries, data structs, format helpers
-  config.rs     — TOML config loading/saving, defaults
+  config.rs     — TOML config loading/saving, defaults, DAILY_PART_LIMIT
   tui.rs        — ratatui TUI: header, overview, breakdown tabs, help overlay
 ```
 
@@ -22,18 +22,20 @@ src/
 - `get_all_sessions()`, `get_sessions_since()` — session queries
 - `daily_breakdown()`, `model_breakdown()`, `project_breakdown()`, `tool_usage()` — aggregation queries
 - `aggregate_stats()` — builds full `AggregateStats` struct
+- `todays_part_count()` — counts parts (messages/tool calls) created today
 - `format_tokens()` — display helper for token counts
 
 ### `config.rs`
 - `Config` struct with serde defaults
+- `DAILY_PART_LIMIT` constant (100, OpenCode Zen free tier daily request limit)
 - `Config::load()` — reads TOML, falls back to defaults on error
 - `Config::save()` — writes TOML, creates parent dirs
 
 ### `tui.rs`
-- `App` struct — holds conn, stats, UI state
+- `App` struct — holds conn, config, stats, UI state
 - `run(terminal, app)` — event loop with tick-based refresh
-- `render_header()` — session/token summary + refresh time
-- `render_overview()` — left pane (totals, today, averages)
+- `render_header()` — session/token summary + daily request progress bar
+- `render_overview()` — left pane (totals, today's usage with progress bars, averages)
 - `render_breakdown()` — right pane (4 tabs with sortable tables)
 - `render_help()` — keyboard shortcut overlay
 
@@ -42,6 +44,7 @@ src/
 ```
 OpenCode DB (SQLite)
   → db::aggregate_stats() → AggregateStats
+  → db::todays_part_count() → today's request count
     → TUI renders header + overview + breakdown
 ```
 
@@ -62,6 +65,11 @@ OpenCode DB (SQLite)
 - Sort state: `sort_col: Option<u8>`, `sort_asc: bool`
 - Resets when switching tabs
 
+### Daily limits
+- `DAILY_PART_LIMIT = 100` — hardcoded free tier request limit
+- `daily_limit_tokens` — configurable in config.toml (default: 1M)
+- Progress bars: green < 70%, yellow 70-90%, red > 90%
+
 ### Refresh cycle
 1. `app.refresh()` queries DB, detects new activity
 2. `terminal.draw()` renders UI
@@ -80,7 +88,7 @@ OpenCode DB (SQLite)
 ## Testing
 
 ```bash
-cargo test              # run all 9 tests
+cargo test              # run all 10 tests
 cargo test -- --nocapture  # show println! output
 cargo build             # check compilation
 cargo build --release   # optimize

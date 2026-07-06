@@ -4,7 +4,7 @@ use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
-use crate::config::Config;
+use crate::config::{Config, DAILY_PART_LIMIT};
 use crate::db::{self, AggregateStats};
 
 // ---------------------------------------------------------------------------
@@ -13,6 +13,7 @@ use crate::db::{self, AggregateStats};
 
 pub struct App {
     conn: rusqlite::Connection,
+    config: Config,
     running: bool,
     active_tab: u8,
     show_help: bool,
@@ -25,9 +26,10 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(conn: rusqlite::Connection, _config: Config) -> Self {
+    pub fn new(conn: rusqlite::Connection, config: Config) -> Self {
         Self {
             conn,
+            config,
             running: true,
             active_tab: 1,
             show_help: false,
@@ -174,6 +176,15 @@ pub fn run(
 fn ui(f: &mut Frame, app: &mut App) {
     let area = f.area();
 
+    // Compute today's usage
+    let today_parts = db::todays_part_count(&app.conn).unwrap_or(0);
+    let today_tokens = app.stats.daily.first()
+        .map(|d| d.tokens_input + d.tokens_output)
+        .unwrap_or(0);
+    let today_sessions = app.stats.daily.first()
+        .map(|d| d.sessions)
+        .unwrap_or(0);
+
     let chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -184,7 +195,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         .split(area);
 
     // ── Header ──────────────────────────────────────────────────────
-    render_header(f, chunks[0], &app.stats, &app.last_refresh, app.new_activity);
+    render_header(f, chunks[0], &app.stats, &app.last_refresh, app.new_activity, today_parts);
 
     // ── Main: overview + breakdown ──────────────────────────────────
     let main_chunks = Layout::default()
@@ -192,7 +203,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
         .split(chunks[1]);
 
-    render_overview(f, main_chunks[0], &app.stats);
+    render_overview(f, main_chunks[0], &app.stats, today_parts, today_sessions, today_tokens, app.config.daily_limit_tokens);
     render_breakdown(f, main_chunks[1], app);
 
     // ── Footer ──────────────────────────────────────────────────────
@@ -225,30 +236,58 @@ fn ui(f: &mut Frame, app: &mut App) {
 
 // ── Header ────────────────────────────────────────────────────────────
 
-fn render_header(f: &mut Frame, area: Rect, stats: &AggregateStats, last_refresh: &str, new_activity: bool) {
+fn render_header(
+    f: &mut Frame,
+    area: Rect,
+    stats: &AggregateStats,
+    last_refresh: &str,
+    new_activity: bool,
+    today_parts: usize,
+) {
     let total_tokens = stats.total_tokens_input + stats.total_tokens_output;
     let activity = if new_activity { "  ** NEW **" } else { "" };
 
+    // Compute request bar (100/day limit)
+    let part_limit = DAILY_PART_LIMIT;
+    let part_fraction = (today_parts as f64 / part_limit as f64).clamp(0.0, 1.0);
+    let part_color = if part_fraction > 0.9 {
+        Color::Red
+    } else if part_fraction > 0.7 {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+    let bar_width = 8;
+    let part_filled = (part_fraction * bar_width as f64) as usize;
+    let part_empty = bar_width - part_filled;
+    let part_bar = format!("[{}{}]", "█".repeat(part_filled), "░".repeat(part_empty));
+
     let header = Paragraph::new(format!(
-        "  xenxen v0.1  │  {} sessions  │  {} tokens  │  {}{}",
+        "  xenxen  │  {} sessions  │  {} tokens  │  Today: {}/{} {}  │  {}{}",
         stats.total_sessions,
         db::format_tokens(total_tokens),
+        today_parts,
+        part_limit,
+        part_bar,
         last_refresh,
         activity,
     ))
-    .style(Style::default().fg(Color::White).bg(Color::Blue))
+    .style(Style::default().fg(Color::White).bg(part_color))
     .alignment(Alignment::Center);
     f.render_widget(header, area);
 }
 
 // ── Overview pane ─────────────────────────────────────────────────────
 
-fn render_overview(f: &mut Frame, area: Rect, stats: &AggregateStats) {
-    let last_day = stats.daily.first();
-    let today_sessions = last_day.map(|d| d.sessions).unwrap_or(0);
-    let today_tokens_in = last_day.map(|d| d.tokens_input).unwrap_or(0);
-    let today_tokens_out = last_day.map(|d| d.tokens_output).unwrap_or(0);
-
+fn render_overview(
+    f: &mut Frame,
+    area: Rect,
+    stats: &AggregateStats,
+    today_parts: usize,
+    today_sessions: usize,
+    today_tokens: i64,
+    daily_limit_tokens: i64,
+) {
     let avg_sessions = if !stats.daily.is_empty() {
         stats.total_sessions as f64 / stats.daily.len() as f64
     } else {
@@ -259,6 +298,38 @@ fn render_overview(f: &mut Frame, area: Rect, stats: &AggregateStats) {
     } else {
         0.0
     };
+
+    // Build request progress bar
+    let part_limit = DAILY_PART_LIMIT;
+    let part_fraction = (today_parts as f64 / part_limit as f64).clamp(0.0, 1.0);
+    let part_color = if part_fraction > 0.9 {
+        Color::Red
+    } else if part_fraction > 0.7 {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+    let bar_width = 12;
+    let part_filled = (part_fraction * bar_width as f64) as usize;
+    let part_empty = bar_width - part_filled;
+    let part_bar = format!("[{}{}]", "█".repeat(part_filled), "░".repeat(part_empty));
+
+    // Build token progress bar
+    let token_fraction = if daily_limit_tokens > 0 {
+        (today_tokens as f64 / daily_limit_tokens as f64).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let token_color = if token_fraction > 0.9 {
+        Color::Red
+    } else if token_fraction > 0.7 {
+        Color::Yellow
+    } else {
+        Color::Green
+    };
+    let token_filled = (token_fraction * bar_width as f64) as usize;
+    let token_empty = bar_width - token_filled;
+    let token_bar = format!("[{}{}]", "█".repeat(token_filled), "░".repeat(token_empty));
 
     let lines = vec![
         // ── Totals section ──
@@ -281,14 +352,10 @@ fn render_overview(f: &mut Frame, area: Rect, stats: &AggregateStats) {
             Span::styled("  Tokens Out   ", Style::default()),
             Span::styled(db::format_tokens(stats.total_tokens_output), Style::default().fg(Color::White)),
         ]),
-        Line::from(vec![
-            Span::styled("  Reasoning    ", Style::default()),
-            Span::styled(db::format_tokens(stats.total_tokens_reasoning), Style::default().fg(Color::DarkGray)),
-        ]),
         Line::from(""),
-        // ── Today section ──
+        // ── Today's usage section ──
         Line::from(Span::styled(
-            "  TODAY",
+            "  TODAY'S USAGE",
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         )),
         Line::from(vec![
@@ -296,12 +363,22 @@ fn render_overview(f: &mut Frame, area: Rect, stats: &AggregateStats) {
             Span::styled(format!("{}", today_sessions), Style::default().fg(Color::Cyan)),
         ]),
         Line::from(vec![
-            Span::styled("  Tokens In    ", Style::default()),
-            Span::styled(db::format_tokens(today_tokens_in), Style::default().fg(Color::Cyan)),
+            Span::styled("  Requests     ", Style::default()),
+            Span::styled(
+                format!("{} / {} {}", today_parts, part_limit, part_bar),
+                Style::default().fg(part_color),
+            ),
         ]),
         Line::from(vec![
-            Span::styled("  Tokens Out   ", Style::default()),
-            Span::styled(db::format_tokens(today_tokens_out), Style::default().fg(Color::Cyan)),
+            Span::styled("  Tokens       ", Style::default()),
+            Span::styled(
+                format!("{} / {} {}",
+                    db::format_tokens(today_tokens),
+                    db::format_tokens(daily_limit_tokens),
+                    token_bar,
+                ),
+                Style::default().fg(token_color),
+            ),
         ]),
         Line::from(""),
         // ── Averages section ──

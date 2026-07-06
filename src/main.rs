@@ -66,16 +66,27 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let config = config::Config::load();
             println!("Config file: {}", config::Config::config_path().unwrap().display());
             println!("Refresh interval: {}s", config.refresh_interval_secs);
+            println!("Daily token limit: {}", db::format_tokens(config.daily_limit_tokens));
+            println!("Daily request limit: {}", config::DAILY_PART_LIMIT);
         }
         Some(Commands::Stats { days, json }) => {
             let db_path = resolve_db_path(&cli.db_path)?;
             let conn = db::open_database(&db_path)?;
             let stats = db::aggregate_stats(&conn, days)?;
+            let today_parts = db::todays_part_count(&conn).unwrap_or(0);
+            let cfg = config::Config::load();
 
             if json {
                 println!("{}", serde_json::to_string_pretty(&stats)?);
             } else {
-                println!("=== Usage ===");
+                println!("=== Today ===");
+                println!("  Requests:     {} / {}", today_parts, config::DAILY_PART_LIMIT);
+                let today_tokens = stats.daily.first().map(|d| d.tokens_input + d.tokens_output).unwrap_or(0);
+                println!("  Tokens:       {} / {}", db::format_tokens(today_tokens), db::format_tokens(cfg.daily_limit_tokens));
+                let today_sessions = stats.daily.first().map(|d| d.sessions).unwrap_or(0);
+                println!("  Sessions:     {}", today_sessions);
+
+                println!("\n=== Usage ===");
                 println!("  Sessions:      {}", stats.total_sessions);
                 println!("  Input:         {} tokens", db::format_tokens(stats.total_tokens_input));
                 println!("  Output:        {} tokens", db::format_tokens(stats.total_tokens_output));
@@ -135,14 +146,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 fn render_mini(conn: &rusqlite::Connection) -> Result<(), Box<dyn std::error::Error>> {
     let stats = db::aggregate_stats(conn, None)?;
-
+    let today_parts = db::todays_part_count(conn).unwrap_or(0);
     let last_day = stats.daily.first();
     let today_tokens = last_day.map(|d| d.tokens_input + d.tokens_output).unwrap_or(0);
+    let cfg = config::Config::load();
 
-    println!("{} sessions | {} tokens | {} today",
+    let part_limit = config::DAILY_PART_LIMIT;
+    let token_limit = cfg.daily_limit_tokens;
+
+    println!("{} sessions | {} tokens | today: {}/{} req, {}/{} tokens",
         stats.total_sessions,
         db::format_tokens(stats.total_tokens_input + stats.total_tokens_output),
+        today_parts,
+        part_limit,
         db::format_tokens(today_tokens),
+        db::format_tokens(token_limit),
     );
     Ok(())
 }

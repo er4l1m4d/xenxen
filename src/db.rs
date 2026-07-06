@@ -461,6 +461,23 @@ pub fn format_tokens(n: i64) -> String {
     }
 }
 
+/// Count the number of parts (messages/tool calls) created today.
+pub fn todays_part_count(conn: &Connection) -> Result<usize> {
+    let today_start = chrono::Local::now()
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc()
+        .timestamp_millis();
+
+    let count: usize = conn.query_row(
+        "SELECT COUNT(*) FROM part WHERE time_created >= ?1",
+        rusqlite::params![today_start],
+        |row| row.get(0),
+    )?;
+    Ok(count)
+}
+
 // ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
@@ -589,5 +606,28 @@ mod tests {
         assert_eq!(format_tokens(500), "500");
         assert_eq!(format_tokens(1500), "1.5K");
         assert_eq!(format_tokens(2500000), "2.5M");
+    }
+
+    #[test]
+    fn test_todays_part_count() {
+        let conn = test_db();
+        let now = chrono::Utc::now().timestamp_millis();
+
+        // Insert parts from today
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) \
+             VALUES ('p1', 'm1', 's1', ?1, ?1, ?2)",
+            rusqlite::params![now, r#"{"type":"tool","tool":"read","callID":"c1","state":{}}"#],
+        )
+        .unwrap();
+        conn.execute(
+            "INSERT INTO part (id, message_id, session_id, time_created, time_updated, data) \
+             VALUES ('p2', 'm1', 's1', ?1, ?1, ?2)",
+            rusqlite::params![now, r#"{"type":"tool","tool":"bash","callID":"c2","state":{}}"#],
+        )
+        .unwrap();
+
+        let count = todays_part_count(&conn).unwrap();
+        assert_eq!(count, 2);
     }
 }
