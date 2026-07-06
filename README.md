@@ -27,6 +27,90 @@ cargo build --release
 
 Binary will be at `target/release/xenxen`.
 
+## How to Use xenxen (Easy Guide)
+
+xenxen is like a personal money tracker for your OpenCode usage. It watches how much money you spend on AI models and tells you when you might run out.
+
+### Step 1: Set up your starting balance
+
+When you first use xenxen, tell it how much money you have. Open your terminal and type:
+
+```bash
+xenxen config set-initial-balance 20.0
+```
+
+This means you start with $20.00. You can change this number to whatever you want.
+
+### Step 2: Run xenxen
+
+Just type this and press Enter:
+
+```bash
+xenxen
+```
+
+A colorful screen will appear showing your money information. It updates automatically every 5 seconds.
+
+### Step 3: Look around
+
+You'll see four tabs at the top:
+- **Daily** — shows how much you spend each day
+- **Model** — shows which AI models cost you the most money
+- **Project** — shows which projects use the most money
+- **Tools** — shows which tools cost you money
+
+Use the arrow keys (↑ ↓) or the letters `j` and `k` to scroll up and down.
+
+### Step 4: Add more money
+
+When you add money to your OpenCode account, tell xenxen:
+
+```bash
+xenxen config add-topup 20.0
+```
+
+This adds $20.00 to your tracked balance. You can add a note too:
+
+```bash
+xenxen config add-topup 20.0 --note "birthday money"
+```
+
+### Step 5: See your stats without the colorful screen
+
+If you just want quick text information:
+
+```bash
+xenxen stats
+```
+
+This shows your stats in plain text that you can copy and paste.
+
+### Step 6: Get a tiny status line
+
+For a very small one-line summary (great for putting in your terminal prompt):
+
+```bash
+xenxen --mini
+```
+
+It shows something like: `$38.30 OK [██████████████░] (96%)`
+
+### Helpful Tips
+
+- **Quit xenxen**: Press `q` or `Esc` to close the colorful screen
+- **Help**: Press `?` to see all keyboard shortcuts
+- **Refresh**: Press `r` to update your data right now
+- **Set low money warning**: xenxen warns you when your balance drops below $5.00. Change this with `xenxen config set-threshold 3.0`
+
+### What the colors mean
+
+- **Green** — You have plenty of money
+- **Yellow** — Getting low, maybe add more soon
+- **Red** — Very low! Add money now
+- **Gray** — No more money left
+
+That's it! xenxen watches your spending so you don't have to worry about running out of money unexpectedly.
+
 ### Pre-built binaries
 
 Download from releases for your platform:
