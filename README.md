@@ -1,17 +1,25 @@
 # xenxen
 
-A terminal dashboard for tracking OpenCode Zen usage, balance, and spending projections.
+A terminal dashboard for tracking your OpenCode Zen usage.
 
-Reads your local OpenCode SQLite database and displays real-time cost analytics in a TUI (terminal user interface).
+Reads your local OpenCode database and shows you how you're using AI — which models, which projects, how many tokens, and more.
+
+## What xenxen does
+
+- Shows how many sessions you've had
+- Shows which AI models you use most
+- Shows which projects use the most tokens
+- Shows which tools you use most
+- Tracks your daily usage over time
+- Shows token usage (input, output, reasoning, cache)
 
 ## Features
 
-- **Balance tracking** — remaining balance, burn rate, days until depleted
-- **Session analytics** — daily, by model, by project, by tool usage
-- **Live dashboard** — auto-refreshing TUI with keyboard navigation
-- **Mini mode** — compact output for status bar embedding
-- **CSV export** — dump stats for Excel/analysis
-- **Auto-reload alerts** — warns when balance drops below threshold
+- **Usage analytics** — see which models, projects, and tools you use most
+- **Token tracking** — monitor input, output, reasoning, and cache tokens
+- **Live dashboard** — colorful screen that updates automatically
+- **Mini mode** — tiny one-line summary for status bars
+- **CSV export** — save your stats to a file for Excel or analysis
 
 ## Installation
 
@@ -29,19 +37,9 @@ Binary will be at `target/release/xenxen`.
 
 ## How to Use xenxen (Easy Guide)
 
-xenxen is like a personal money tracker for your OpenCode usage. It watches how much money you spend on AI models and tells you when you might run out.
+xenxen shows you how you're using OpenCode. It's like a report card for your AI usage.
 
-### Step 1: Set up your starting balance
-
-When you first use xenxen, tell it how much money you have. Open your terminal and type:
-
-```bash
-xenxen config set-initial-balance 20.0
-```
-
-This means you start with $20.00. You can change this number to whatever you want.
-
-### Step 2: Run xenxen
+### Step 1: Run xenxen
 
 Just type this and press Enter:
 
@@ -49,33 +47,19 @@ Just type this and press Enter:
 xenxen
 ```
 
-A colorful screen will appear showing your money information. It updates automatically every 5 seconds.
+A colorful screen will appear showing your usage. It updates automatically every 5 seconds.
 
-### Step 3: Look around
+### Step 2: Look around
 
 You'll see four tabs at the top:
-- **Daily** — shows how much you spend each day
-- **Model** — shows which AI models cost you the most money
-- **Project** — shows which projects use the most money
-- **Tools** — shows which tools cost you money
+- **Daily** — shows how many sessions you have each day
+- **Model** — shows which AI models you use most
+- **Project** — shows which projects use the most tokens
+- **Tools** — shows which tools you use most
 
 Use the arrow keys (↑ ↓) or the letters `j` and `k` to scroll up and down.
 
-### Step 4: Add more money
-
-When you add money to your OpenCode account, tell xenxen:
-
-```bash
-xenxen config add-topup 20.0
-```
-
-This adds $20.00 to your tracked balance. You can add a note too:
-
-```bash
-xenxen config add-topup 20.0 --note "birthday money"
-```
-
-### Step 5: See your stats without the colorful screen
+### Step 3: See your stats without the colorful screen
 
 If you just want quick text information:
 
@@ -85,7 +69,7 @@ xenxen stats
 
 This shows your stats in plain text that you can copy and paste.
 
-### Step 6: Get a tiny status line
+### Step 4: Get a tiny status line
 
 For a very small one-line summary (great for putting in your terminal prompt):
 
@@ -93,23 +77,15 @@ For a very small one-line summary (great for putting in your terminal prompt):
 xenxen --mini
 ```
 
-It shows something like: `$38.30 OK [██████████████░] (96%)`
+It shows something like: `61 sessions | 1.2M tokens | 5 today`
 
 ### Helpful Tips
 
 - **Quit xenxen**: Press `q` or `Esc` to close the colorful screen
 - **Help**: Press `?` to see all keyboard shortcuts
 - **Refresh**: Press `r` to update your data right now
-- **Set low money warning**: xenxen warns you when your balance drops below $5.00. Change this with `xenxen config set-threshold 3.0`
 
-### What the colors mean
-
-- **Green** — You have plenty of money
-- **Yellow** — Getting low, maybe add more soon
-- **Red** — Very low! Add money now
-- **Gray** — No more money left
-
-That's it! xenxen watches your spending so you don't have to worry about running out of money unexpectedly.
+That's it! xenxen shows you how you're using OpenCode so you can understand your usage patterns.
 
 ### Pre-built binaries
 
@@ -139,9 +115,8 @@ xenxen stats --json            # JSON output
 ```bash
 xenxen --mini
 # Output:
-# $38.30 OK [██████████████░] (96%)
-# sessions: 61 | burn: $0.09/day | left: 1+ years
-# last day: 5 sessions, $0.42
+# 61 sessions | 1.2M tokens | 5 today
+# burn: 12 sessions/day | last: 5 sessions, 45K tokens
 ```
 
 ### Export to CSV
@@ -151,15 +126,6 @@ xenxen --export-csv stats.csv
 ```
 
 CSV format: `type,key,value` rows with summary, daily, model, and tool sections.
-
-### Configuration
-
-```bash
-xenxen config show                           # view config
-xenxen config set-initial-balance 20.0       # set starting balance
-xenxen config add-topup 20.0                 # record a top-up
-xenxen config add-topup 20.0 --date 2026-06-15 --note "monthly"
-```
 
 ## Keyboard shortcuts (TUI)
 
@@ -181,24 +147,13 @@ xenxen config add-topup 20.0 --date 2026-06-15 --note "monthly"
 Located at `~/.config/xenxen/config.toml`:
 
 ```toml
-initial_balance = 20.0
-auto_reload_threshold = 5.0
-auto_reload_amount = 20.0
 refresh_interval_secs = 5
-
-[[topups]]
-date = "2026-06-15"
-amount = 20.0
-note = "monthly top-up"
 ```
 
 ### Fields
 
 | Field | Default | Description |
 |-------|---------|-------------|
-| `initial_balance` | `0.0` | Starting balance when you first set up tracking |
-| `auto_reload_threshold` | `5.0` | Balance level that triggers a "Critical" warning |
-| `auto_reload_amount` | `20.0` | Amount that would be auto-reloaded ( informational ) |
 | `refresh_interval_secs` | `5` | Dashboard refresh interval in seconds |
 
 ## Database detection
