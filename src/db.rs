@@ -67,13 +67,12 @@ pub fn find_database() -> Option<PathBuf> {
 }
 
 pub fn open_database(path: &PathBuf) -> Result<Connection> {
-    let conn = Connection::open(path).map_err(|e| {
+    Connection::open(path).map_err(|e| {
         rusqlite::Error::InvalidParameterName(format!(
             "Failed to open database at '{}': {}",
             path.display(), e
         ))
-    })?;
-    Ok(conn)
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -108,7 +107,6 @@ pub struct SessionModel {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct DailySummary {
     pub date: String,
-    pub cost: f64,
     pub sessions: usize,
     pub tokens_input: i64,
     pub tokens_output: i64,
@@ -121,7 +119,6 @@ pub struct DailySummary {
 pub struct ModelSummary {
     pub model_id: String,
     pub provider_id: String,
-    pub cost: f64,
     pub tokens_input: i64,
     pub tokens_output: i64,
     pub tokens_reasoning: i64,
@@ -138,7 +135,6 @@ pub struct ToolUsage {
 pub struct ProjectSummary {
     pub project_id: String,
     pub project_name: String,
-    pub cost: f64,
     pub tokens_input: i64,
     pub tokens_output: i64,
     pub sessions: usize,
@@ -147,7 +143,6 @@ pub struct ProjectSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AggregateStats {
     pub total_sessions: usize,
-    pub total_cost: f64,
     pub total_tokens_input: i64,
     pub total_tokens_output: i64,
     pub total_tokens_reasoning: i64,
@@ -219,6 +214,7 @@ pub fn get_sessions_since(conn: &Connection, days: u64) -> Result<Vec<Session>> 
 }
 
 /// Get sessions for a specific project.
+#[allow(dead_code)]
 pub fn get_sessions_by_project(conn: &Connection, project_id: &str) -> Result<Vec<Session>> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {SESSION_COLS} FROM session s \
@@ -230,6 +226,7 @@ pub fn get_sessions_by_project(conn: &Connection, project_id: &str) -> Result<Ve
 }
 
 /// Get distinct project IDs with session counts.
+#[allow(dead_code)]
 pub fn get_projects(conn: &Connection) -> Result<Vec<(String, usize)>> {
     let mut stmt = conn.prepare(
         "SELECT project_id, COUNT(*) as cnt FROM session \
@@ -260,7 +257,6 @@ pub fn daily_breakdown(conn: &Connection, days: Option<u64>) -> Result<Vec<Daily
     let mut stmt = conn.prepare(&format!(
         "SELECT \
             DATE(s.time_updated / 1000, 'unixepoch', 'localtime') as day, \
-            COALESCE(SUM(s.cost), 0.0) as cost, \
             COUNT(*) as sessions, \
             COALESCE(SUM(s.tokens_input), 0) as tokens_in, \
             COALESCE(SUM(s.tokens_output), 0) as tokens_out, \
@@ -278,13 +274,12 @@ pub fn daily_breakdown(conn: &Connection, days: Option<u64>) -> Result<Vec<Daily
         .query_map([], |row| {
             Ok(DailySummary {
                 date: row.get(0)?,
-                cost: row.get(1)?,
-                sessions: row.get(2)?,
-                tokens_input: row.get(3)?,
-                tokens_output: row.get(4)?,
-                tokens_reasoning: row.get(5)?,
-                tokens_cache_read: row.get(6)?,
-                tokens_cache_write: row.get(7)?,
+                sessions: row.get(1)?,
+                tokens_input: row.get(2)?,
+                tokens_output: row.get(3)?,
+                tokens_reasoning: row.get(4)?,
+                tokens_cache_read: row.get(5)?,
+                tokens_cache_write: row.get(6)?,
             })
         })?
         .filter_map(|r| r.ok())
@@ -312,7 +307,6 @@ pub fn model_breakdown(conn: &Connection, days: Option<u64>) -> Result<Vec<Model
         "SELECT \
             COALESCE(json_extract(s.model, '$.id'), 'unknown') as model_id, \
             COALESCE(json_extract(s.model, '$.providerID'), 'unknown') as provider_id, \
-            COALESCE(SUM(s.cost), 0.0) as cost, \
             COALESCE(SUM(s.tokens_input), 0) as tokens_in, \
             COALESCE(SUM(s.tokens_output), 0) as tokens_out, \
             COALESCE(SUM(s.tokens_reasoning), 0) as tokens_reasoning, \
@@ -320,7 +314,7 @@ pub fn model_breakdown(conn: &Connection, days: Option<u64>) -> Result<Vec<Model
          FROM session s \
          WHERE {where_clause} \
          GROUP BY model_id, provider_id \
-         ORDER BY cost DESC"
+         ORDER BY sessions DESC"
     ))?;
 
     let rows = stmt
@@ -328,11 +322,10 @@ pub fn model_breakdown(conn: &Connection, days: Option<u64>) -> Result<Vec<Model
             Ok(ModelSummary {
                 model_id: row.get(0)?,
                 provider_id: row.get(1)?,
-                cost: row.get(2)?,
-                tokens_input: row.get(3)?,
-                tokens_output: row.get(4)?,
-                tokens_reasoning: row.get(5)?,
-                sessions: row.get(6)?,
+                tokens_input: row.get(2)?,
+                tokens_output: row.get(3)?,
+                tokens_reasoning: row.get(4)?,
+                sessions: row.get(5)?,
             })
         })?
         .filter_map(|r| r.ok())
@@ -344,7 +337,7 @@ pub fn model_breakdown(conn: &Connection, days: Option<u64>) -> Result<Vec<Model
 /// Get tool usage counts from the part table.
 pub fn tool_usage(conn: &Connection, days: Option<u64>) -> Result<Vec<ToolUsage>> {
     let mut conditions = vec![
-        "p.data LIKE '%\"type\":\"tool\"%'".to_string(),
+        "json_extract(p.data, '$.type') = 'tool'".to_string(),
     ];
     if let Some(d) = days {
         let cutoff = chrono::Utc::now()
@@ -395,7 +388,6 @@ pub fn project_breakdown(conn: &Connection, days: Option<u64>) -> Result<Vec<Pro
         "SELECT \
             s.project_id, \
             COALESCE(p.name, s.project_id) as project_name, \
-            COALESCE(SUM(s.cost), 0.0) as cost, \
             COALESCE(SUM(s.tokens_input), 0) as tokens_in, \
             COALESCE(SUM(s.tokens_output), 0) as tokens_out, \
             COUNT(*) as sessions \
@@ -403,7 +395,7 @@ pub fn project_breakdown(conn: &Connection, days: Option<u64>) -> Result<Vec<Pro
          LEFT JOIN project p ON p.id = s.project_id \
          WHERE {where_clause} \
          GROUP BY s.project_id \
-         ORDER BY cost DESC"
+         ORDER BY sessions DESC"
     ))?;
 
     let rows = stmt
@@ -411,10 +403,9 @@ pub fn project_breakdown(conn: &Connection, days: Option<u64>) -> Result<Vec<Pro
             Ok(ProjectSummary {
                 project_id: row.get(0)?,
                 project_name: row.get(1)?,
-                cost: row.get(2)?,
-                tokens_input: row.get(3)?,
-                tokens_output: row.get(4)?,
-                sessions: row.get(5)?,
+                tokens_input: row.get(2)?,
+                tokens_output: row.get(3)?,
+                sessions: row.get(4)?,
             })
         })?
         .filter_map(|r| r.ok())
@@ -431,7 +422,6 @@ pub fn aggregate_stats(conn: &Connection, days: Option<u64>) -> Result<Aggregate
     };
 
     let total_sessions = sessions.len();
-    let total_cost = sessions.iter().map(|s| s.cost).sum();
     let total_tokens_input = sessions.iter().map(|s| s.tokens_input).sum();
     let total_tokens_output = sessions.iter().map(|s| s.tokens_output).sum();
     let total_tokens_reasoning = sessions.iter().map(|s| s.tokens_reasoning).sum();
@@ -445,7 +435,6 @@ pub fn aggregate_stats(conn: &Connection, days: Option<u64>) -> Result<Aggregate
 
     Ok(AggregateStats {
         total_sessions,
-        total_cost,
         total_tokens_input,
         total_tokens_output,
         total_tokens_reasoning,
@@ -470,10 +459,6 @@ pub fn format_tokens(n: i64) -> String {
     } else {
         format!("{}", n)
     }
-}
-
-pub fn format_cost(c: f64) -> String {
-    format!("${:.2}", c)
 }
 
 // ---------------------------------------------------------------------------
@@ -509,49 +494,45 @@ mod tests {
         conn
     }
 
-    fn insert_session(conn: &Connection, id: &str, cost: f64, tokens_in: i64, model: &str, ts: i64) {
+    fn insert_session(conn: &Connection, id: &str, tokens_in: i64, model: &str, ts: i64) {
         conn.execute(
             "INSERT INTO session (id, project_id, slug, directory, title, version, \
              time_created, time_updated, cost, tokens_input, tokens_output, \
              tokens_reasoning, tokens_cache_read, tokens_cache_write, model) \
-             VALUES (?1, 'proj1', 'slug', '/tmp', 'Test', '1.0', ?2, ?2, ?3, ?4, 0, 0, 0, 0, ?5)",
-            rusqlite::params![id, ts, cost, tokens_in, model],
+             VALUES (?1, 'proj1', 'slug', '/tmp', 'Test', '1.0', ?2, ?2, 0.0, ?3, 0, 0, 0, 0, ?4)",
+            rusqlite::params![id, ts, tokens_in, model],
         )
         .unwrap();
     }
 
     #[test]
-    fn test_session_count_and_total_cost() {
+    fn test_session_count() {
         let conn = test_db();
-        insert_session(&conn, "s1", 1.5, 1000, r#"{"id":"gpt-5","providerID":"openai"}"#, 1700000000000);
-        insert_session(&conn, "s2", 0.5, 500, r#"{"id":"claude-sonnet-4-5","providerID":"anthropic"}"#, 1700010000000);
+        insert_session(&conn, "s1", 1000, r#"{"id":"gpt-5","providerID":"openai"}"#, 1700000000000);
+        insert_session(&conn, "s2", 500, r#"{"id":"claude-sonnet-4-5","providerID":"anthropic"}"#, 1700010000000);
 
         let count: usize = conn.query_row("SELECT COUNT(*) FROM session", [], |r| r.get(0)).unwrap();
         assert_eq!(count, 2);
-
-        let total: f64 = conn.query_row("SELECT SUM(cost) FROM session", [], |r| r.get(0)).unwrap();
-        assert!((total - 2.0).abs() < 0.001);
     }
 
     #[test]
     fn test_daily_breakdown() {
         let conn = test_db();
-        // Same day sessions
-        insert_session(&conn, "s1", 1.0, 100, r#"{"id":"m1","providerID":"p1"}"#, 1700000000000);
-        insert_session(&conn, "s2", 2.0, 200, r#"{"id":"m1","providerID":"p1"}"#, 1700000100000);
+        insert_session(&conn, "s1", 100, r#"{"id":"m1","providerID":"p1"}"#, 1700000000000);
+        insert_session(&conn, "s2", 200, r#"{"id":"m1","providerID":"p1"}"#, 1700000100000);
 
         let daily = daily_breakdown(&conn, None).unwrap();
         assert!(!daily.is_empty());
-        assert!((daily[0].cost - 3.0).abs() < 0.001);
         assert_eq!(daily[0].sessions, 2);
+        assert_eq!(daily[0].tokens_input, 300);
     }
 
     #[test]
     fn test_model_breakdown() {
         let conn = test_db();
-        insert_session(&conn, "s1", 1.0, 100, r#"{"id":"gpt-5","providerID":"openai"}"#, 1700000000000);
-        insert_session(&conn, "s2", 2.0, 200, r#"{"id":"gpt-5","providerID":"openai"}"#, 1700000000000);
-        insert_session(&conn, "s3", 0.5, 50, r#"{"id":"claude-sonnet-4-5","providerID":"anthropic"}"#, 1700000000000);
+        insert_session(&conn, "s1", 100, r#"{"id":"gpt-5","providerID":"openai"}"#, 1700000000000);
+        insert_session(&conn, "s2", 200, r#"{"id":"gpt-5","providerID":"openai"}"#, 1700000000000);
+        insert_session(&conn, "s3", 50, r#"{"id":"claude-sonnet-4-5","providerID":"anthropic"}"#, 1700000000000);
 
         let models = model_breakdown(&conn, None).unwrap();
         assert_eq!(models.len(), 2);
@@ -592,8 +573,8 @@ mod tests {
         let conn = test_db();
         let now = chrono::Utc::now().timestamp_millis();
         let day_ms = 86_400_000;
-        insert_session(&conn, "s1", 1.0, 100, r#"{"id":"m1","providerID":"p1"}"#, now);
-        insert_session(&conn, "s2", 1.0, 100, r#"{"id":"m1","providerID":"p1"}"#, now - 10 * day_ms);
+        insert_session(&conn, "s1", 100, r#"{"id":"m1","providerID":"p1"}"#, now);
+        insert_session(&conn, "s2", 100, r#"{"id":"m1","providerID":"p1"}"#, now - 10 * day_ms);
 
         let recent = get_sessions_since(&conn, 5).unwrap();
         assert_eq!(recent.len(), 1);

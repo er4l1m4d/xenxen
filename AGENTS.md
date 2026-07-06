@@ -2,16 +2,15 @@
 
 ## Project Overview
 
-xenxen is a Rust TUI dashboard that reads the local OpenCode SQLite database and displays usage analytics, balance tracking, and spending projections.
+xenxen is a Rust TUI dashboard that reads the local OpenCode SQLite database and displays usage analytics for your AI sessions.
 
 ## Architecture
 
 ```
 src/
-  main.rs       — CLI entry point (clap), subcommands, config management
+  main.rs       — CLI entry point (clap), subcommands, stats, CSV export
   db.rs         — SQLite queries, data structs, format helpers
   config.rs     — TOML config loading/saving, defaults
-  balance.rs    — BalanceTracker, burn rate, projection math
   tui.rs        — ratatui TUI: header, overview, breakdown tabs, help overlay
 ```
 
@@ -23,25 +22,18 @@ src/
 - `get_all_sessions()`, `get_sessions_since()` — session queries
 - `daily_breakdown()`, `model_breakdown()`, `project_breakdown()`, `tool_usage()` — aggregation queries
 - `aggregate_stats()` — builds full `AggregateStats` struct
-- `format_tokens()`, `format_cost()` — display helpers
+- `format_tokens()` — display helper for token counts
 
 ### `config.rs`
 - `Config` struct with serde defaults
 - `Config::load()` — reads TOML, falls back to defaults on error
 - `Config::save()` — writes TOML, creates parent dirs
-- `Config::total_deposited()` — initial_balance + sum of topups
-
-### `balance.rs`
-- `BalanceTracker::new(config)` — takes a Config clone
-- `BalanceTracker::snapshot(stats)` — computes `BalanceSnapshot`
-- `BalanceStatus` enum: Healthy / Warning / Critical / Depleted
-- `format_days_until_empty()`, `format_burn_rate()` — display helpers
 
 ### `tui.rs`
-- `App` struct — holds conn, config, stats, UI state
+- `App` struct — holds conn, stats, UI state
 - `run(terminal, app)` — event loop with tick-based refresh
-- `render_header()` — balance bar + status
-- `render_overview()` — left pane (balance/projections/usage)
+- `render_header()` — session/token summary + refresh time
+- `render_overview()` — left pane (totals, today, averages)
 - `render_breakdown()` — right pane (4 tabs with sortable tables)
 - `render_help()` — keyboard shortcut overlay
 
@@ -50,21 +42,19 @@ src/
 ```
 OpenCode DB (SQLite)
   → db::aggregate_stats() → AggregateStats
-    → BalanceTracker::snapshot() → BalanceSnapshot
-      → TUI renders header + overview + breakdown
+    → TUI renders header + overview + breakdown
 ```
 
 ## Key Patterns
 
 ### Error handling
 - Functions return `Result<T, Box<dyn std::error::Error>>`
-- Config loading falls back to defaults with `unwrap_or_default()` (now with warnings)
+- Config loading falls back to defaults with warnings
 - DB errors propagate via `?` operator
 - User-facing errors print to stderr with context
 
 ### Cloning
 - `AggregateStats` derives `Clone` — used for sorting in-place in `render_breakdown`
-- `BalanceTracker` takes `Config` by clone
 - `App` holds `rusqlite::Connection` directly (not cloned)
 
 ### Sorting
@@ -90,7 +80,7 @@ OpenCode DB (SQLite)
 ## Testing
 
 ```bash
-cargo test              # run all 16 tests
+cargo test              # run all 9 tests
 cargo test -- --nocapture  # show println! output
 cargo build             # check compilation
 cargo build --release   # optimize
@@ -127,7 +117,7 @@ cargo build --release   # optimize
 
 ## Known Limitations
 
-- No public Zen balance API — balance tracking is local cost estimation
+- No public Zen balance API — only tracks usage
 - Project names show as hash IDs when `project.name` is NULL in DB
 - No file-watching (uses periodic polling for refresh)
 - Single-user only (reads one OpenCode DB)

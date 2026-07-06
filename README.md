@@ -25,7 +25,7 @@ Reads your local OpenCode database and shows you how you're using AI — which m
 
 ### From source
 
-Requires Rust 1.70+.
+Requires Rust 1.85+ (edition 2024).
 
 ```bash
 git clone <repo-url>
@@ -115,8 +115,7 @@ xenxen stats --json            # JSON output
 ```bash
 xenxen --mini
 # Output:
-# 61 sessions | 1.2M tokens | 5 today
-# burn: 12 sessions/day | last: 5 sessions, 45K tokens
+# 61 sessions | 1.2M tokens | 45K today
 ```
 
 ### Export to CSV

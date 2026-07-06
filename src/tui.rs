@@ -4,7 +4,6 @@ use crossterm::event::{self, Event, KeyCode, KeyModifiers};
 use ratatui::prelude::*;
 use ratatui::widgets::*;
 
-use crate::balance::{self, BalanceTracker, BalanceStatus};
 use crate::config::Config;
 use crate::db::{self, AggregateStats};
 
@@ -14,7 +13,6 @@ use crate::db::{self, AggregateStats};
 
 pub struct App {
     conn: rusqlite::Connection,
-    config: Config,
     running: bool,
     active_tab: u8,
     show_help: bool,
@@ -27,10 +25,9 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(conn: rusqlite::Connection, config: Config) -> Self {
+    pub fn new(conn: rusqlite::Connection, _config: Config) -> Self {
         Self {
             conn,
-            config,
             running: true,
             active_tab: 1,
             show_help: false,
@@ -65,7 +62,6 @@ impl App {
 fn empty_stats() -> AggregateStats {
     AggregateStats {
         total_sessions: 0,
-        total_cost: 0.0,
         total_tokens_input: 0,
         total_tokens_output: 0,
         total_tokens_reasoning: 0,
@@ -86,7 +82,7 @@ pub fn run(
     mut terminal: Terminal<impl Backend>,
     mut app: App,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let tick_rate = Duration::from_secs(app.config.refresh_interval_secs);
+    let tick_rate = Duration::from_secs(5);
 
     loop {
         app.refresh();
@@ -124,11 +120,10 @@ pub fn run(
                     KeyCode::Home => app.scroll_offset = 0,
                     KeyCode::End => app.scroll_offset = app.max_scroll(),
                     KeyCode::Tab => {
-                        // Cycle sort column forward
                         let max_cols = match app.active_tab {
-                            1 => 4, // daily: cost, sessions, in, out
-                            2 => 5, // model: provider, cost, sessions, in, out
-                            3 => 4, // project: cost, sessions, in, out
+                            1 => 4, // daily: date, sessions, in, out
+                            2 => 4, // model: model, sessions, in, out
+                            3 => 4, // project: project, sessions, in, out
                             4 => 1, // tools: count only
                             _ => 0,
                         };
@@ -141,10 +136,9 @@ pub fn run(
                         }
                     }
                     KeyCode::BackTab => {
-                        // Cycle sort column backward
                         let max_cols = match app.active_tab {
                             1 => 4,
-                            2 => 5,
+                            2 => 4,
                             3 => 4,
                             4 => 1,
                             _ => 0,
@@ -158,7 +152,6 @@ pub fn run(
                         }
                     }
                     KeyCode::Char(' ') => {
-                        // Toggle sort direction
                         app.sort_asc = !app.sort_asc;
                     }
                     _ => {}
@@ -180,8 +173,6 @@ pub fn run(
 
 fn ui(f: &mut Frame, app: &mut App) {
     let area = f.area();
-    let tracker = BalanceTracker::new(app.config.clone());
-    let snap = tracker.snapshot(&app.stats);
 
     let chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -193,7 +184,7 @@ fn ui(f: &mut Frame, app: &mut App) {
         .split(area);
 
     // ── Header ──────────────────────────────────────────────────────
-    render_header(f, chunks[0], &snap, &app.last_refresh, app.new_activity);
+    render_header(f, chunks[0], &app.stats, &app.last_refresh, app.new_activity);
 
     // ── Main: overview + breakdown ──────────────────────────────────
     let main_chunks = Layout::default()
@@ -201,17 +192,17 @@ fn ui(f: &mut Frame, app: &mut App) {
         .constraints([Constraint::Percentage(38), Constraint::Percentage(62)])
         .split(chunks[1]);
 
-    render_overview(f, main_chunks[0], &snap, &app.stats);
+    render_overview(f, main_chunks[0], &app.stats);
     render_breakdown(f, main_chunks[1], app);
 
     // ── Footer ──────────────────────────────────────────────────────
     let sort_indicator = if let Some(col) = app.sort_col {
         let col_names = match app.active_tab {
-            1 => ["", "cost", "sessions", "tokens_in", "tokens_out"],
-            2 => ["model", "provider", "cost", "sessions", "tokens_in"],
-            3 => ["project", "cost", "sessions", "tokens_in", "tokens_out"],
-            4 => ["tool", "count", "", "", ""],
-            _ => [""; 5],
+            1 => ["", "sessions", "tokens_in", "tokens_out"],
+            2 => ["model", "sessions", "tokens_in", "tokens_out"],
+            3 => ["project", "sessions", "tokens_in", "tokens_out"],
+            4 => ["tool", "count", "", ""],
+            _ => [""; 4],
         };
         let dir = if app.sort_asc { "↑" } else { "↓" };
         format!("  [Tab] Sort: {}{}", col_names[col as usize], dir)
@@ -234,129 +225,97 @@ fn ui(f: &mut Frame, app: &mut App) {
 
 // ── Header ────────────────────────────────────────────────────────────
 
-fn render_header(f: &mut Frame, area: Rect, snap: &balance::BalanceSnapshot, last_refresh: &str, new_activity: bool) {
-    let status_icon = match snap.status {
-        BalanceStatus::Healthy => "OK",
-        BalanceStatus::Warning => "LOW",
-        BalanceStatus::Critical => "!!",
-        BalanceStatus::Depleted => "EMPTY",
-    };
-    let bg_color = match snap.status {
-        BalanceStatus::Healthy => Color::Green,
-        BalanceStatus::Warning => Color::Yellow,
-        BalanceStatus::Critical => Color::Red,
-        BalanceStatus::Depleted => Color::DarkGray,
-    };
-
-    // Build progress bar for balance
-    let bar_width = 20;
-    let fraction = if snap.total_deposited > 0.0 {
-        (snap.remaining / snap.total_deposited).clamp(0.0, 1.0)
-    } else {
-        0.0
-    };
-    let filled = (fraction * bar_width as f64) as usize;
-    let empty = bar_width as usize - filled;
-    let bar = format!("[{}{}]", "█".repeat(filled), "░".repeat(empty));
-
+fn render_header(f: &mut Frame, area: Rect, stats: &AggregateStats, last_refresh: &str, new_activity: bool) {
+    let total_tokens = stats.total_tokens_input + stats.total_tokens_output;
     let activity = if new_activity { "  ** NEW **" } else { "" };
 
     let header = Paragraph::new(format!(
-        "  xenxen v0.1  │  {} {}  │  {} ({:.0}%)  │  {}{}",
-        db::format_cost(snap.remaining),
-        status_icon,
-        bar,
-        fraction * 100.0,
+        "  xenxen v0.1  │  {} sessions  │  {} tokens  │  {}{}",
+        stats.total_sessions,
+        db::format_tokens(total_tokens),
         last_refresh,
         activity,
     ))
-    .style(Style::default().fg(Color::White).bg(bg_color))
+    .style(Style::default().fg(Color::White).bg(Color::Blue))
     .alignment(Alignment::Center);
     f.render_widget(header, area);
 }
 
 // ── Overview pane ─────────────────────────────────────────────────────
 
-fn render_overview(f: &mut Frame, area: Rect, snap: &balance::BalanceSnapshot, stats: &AggregateStats) {
-    let burn_label = balance::format_burn_rate(snap.burn_rate_daily);
-    let days_label = balance::format_days_until_empty(snap.days_until_empty);
-    let auto_reload_line = if snap.will_auto_reload {
-        format!("{} at < {}", db::format_cost(snap.auto_reload_amount), db::format_cost(snap.auto_reload_threshold))
-    } else {
-        "off".to_string()
-    };
+fn render_overview(f: &mut Frame, area: Rect, stats: &AggregateStats) {
+    let last_day = stats.daily.first();
+    let today_sessions = last_day.map(|d| d.sessions).unwrap_or(0);
+    let today_tokens_in = last_day.map(|d| d.tokens_input).unwrap_or(0);
+    let today_tokens_out = last_day.map(|d| d.tokens_output).unwrap_or(0);
 
-    let status_color = match snap.status {
-        BalanceStatus::Healthy => Color::Green,
-        BalanceStatus::Warning => Color::Yellow,
-        BalanceStatus::Critical => Color::Red,
-        BalanceStatus::Depleted => Color::DarkGray,
+    let avg_sessions = if !stats.daily.is_empty() {
+        stats.total_sessions as f64 / stats.daily.len() as f64
+    } else {
+        0.0
+    };
+    let avg_tokens = if !stats.daily.is_empty() {
+        (stats.total_tokens_input + stats.total_tokens_output) as f64 / stats.daily.len() as f64
+    } else {
+        0.0
     };
 
     let lines = vec![
-        // ── Balance section ──
+        // ── Totals section ──
         Line::from(Span::styled(
-            "  BALANCE",
+            "  TOTALS",
             Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
         )),
         Line::from(vec![
-            Span::styled("  Remaining   ", Style::default()),
+            Span::styled("  Sessions     ", Style::default()),
             Span::styled(
-                db::format_cost(snap.remaining),
-                Style::default().fg(status_color).add_modifier(Modifier::BOLD),
+                format!("{}", stats.total_sessions),
+                Style::default().fg(Color::White).add_modifier(Modifier::BOLD),
             ),
         ]),
         Line::from(vec![
-            Span::styled("  Deposited   ", Style::default()),
-            Span::styled(db::format_cost(snap.total_deposited), Style::default().fg(Color::White)),
-        ]),
-        Line::from(vec![
-            Span::styled("  Spent       ", Style::default()),
-            Span::styled(db::format_cost(snap.cumulative_spend), Style::default().fg(Color::White)),
-        ]),
-        Line::from(vec![
-            Span::styled("  Status      ", Style::default()),
-            Span::styled(snap.status.label(), Style::default().fg(status_color)),
-        ]),
-        Line::from(""),
-        // ── Projections section ──
-        Line::from(Span::styled(
-            "  PROJECTIONS",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(vec![
-            Span::styled("  Burn Rate   ", Style::default()),
-            Span::styled(burn_label, Style::default().fg(Color::Cyan)),
-        ]),
-        Line::from(vec![
-            Span::styled("  Days Left   ", Style::default()),
-            Span::styled(days_label, Style::default().fg(Color::Cyan)),
-        ]),
-        Line::from(vec![
-            Span::styled("  Auto-reload ", Style::default()),
-            Span::styled(auto_reload_line, Style::default().fg(Color::DarkGray)),
-        ]),
-        Line::from(""),
-        // ── Usage section ──
-        Line::from(Span::styled(
-            "  USAGE",
-            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
-        )),
-        Line::from(vec![
-            Span::styled("  Sessions    ", Style::default()),
-            Span::styled(format!("{}", stats.total_sessions), Style::default().fg(Color::White)),
-        ]),
-        Line::from(vec![
-            Span::styled("  Tokens In   ", Style::default()),
+            Span::styled("  Tokens In    ", Style::default()),
             Span::styled(db::format_tokens(stats.total_tokens_input), Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
-            Span::styled("  Tokens Out  ", Style::default()),
+            Span::styled("  Tokens Out   ", Style::default()),
             Span::styled(db::format_tokens(stats.total_tokens_output), Style::default().fg(Color::White)),
         ]),
         Line::from(vec![
-            Span::styled("  Reasoning   ", Style::default()),
+            Span::styled("  Reasoning    ", Style::default()),
             Span::styled(db::format_tokens(stats.total_tokens_reasoning), Style::default().fg(Color::DarkGray)),
+        ]),
+        Line::from(""),
+        // ── Today section ──
+        Line::from(Span::styled(
+            "  TODAY",
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("  Sessions     ", Style::default()),
+            Span::styled(format!("{}", today_sessions), Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Tokens In    ", Style::default()),
+            Span::styled(db::format_tokens(today_tokens_in), Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Tokens Out   ", Style::default()),
+            Span::styled(db::format_tokens(today_tokens_out), Style::default().fg(Color::Cyan)),
+        ]),
+        Line::from(""),
+        // ── Averages section ──
+        Line::from(Span::styled(
+            "  AVERAGES / DAY",
+            Style::default().fg(Color::Yellow).add_modifier(Modifier::BOLD),
+        )),
+        Line::from(vec![
+            Span::styled("  Sessions     ", Style::default()),
+            Span::styled(format!("{:.1}", avg_sessions), Style::default().fg(Color::DarkGray)),
+        ]),
+        Line::from(vec![
+            Span::styled("  Tokens       ", Style::default()),
+            Span::styled(db::format_tokens(avg_tokens as i64), Style::default().fg(Color::DarkGray)),
         ]),
     ];
 
@@ -385,10 +344,9 @@ fn render_breakdown(f: &mut Frame, area: Rect, app: &mut App) {
                 app.stats.daily.sort_by(|a, b| {
                     let ord = match col {
                         0 => a.date.cmp(&b.date),
-                        1 => a.cost.partial_cmp(&b.cost).unwrap_or(std::cmp::Ordering::Equal),
-                        2 => a.sessions.cmp(&b.sessions),
-                        3 => a.tokens_input.cmp(&b.tokens_input),
-                        4 => a.tokens_output.cmp(&b.tokens_output),
+                        1 => a.sessions.cmp(&b.sessions),
+                        2 => a.tokens_input.cmp(&b.tokens_input),
+                        3 => a.tokens_output.cmp(&b.tokens_output),
                         _ => std::cmp::Ordering::Equal,
                     };
                     if asc { ord } else { ord.reverse() }
@@ -398,11 +356,9 @@ fn render_breakdown(f: &mut Frame, area: Rect, app: &mut App) {
                 app.stats.by_model.sort_by(|a, b| {
                     let ord = match col {
                         0 => a.model_id.cmp(&b.model_id),
-                        1 => a.provider_id.cmp(&b.provider_id),
-                        2 => a.cost.partial_cmp(&b.cost).unwrap_or(std::cmp::Ordering::Equal),
-                        3 => a.sessions.cmp(&b.sessions),
-                        4 => a.tokens_input.cmp(&b.tokens_input),
-                        5 => a.tokens_output.cmp(&b.tokens_output),
+                        1 => a.sessions.cmp(&b.sessions),
+                        2 => a.tokens_input.cmp(&b.tokens_input),
+                        3 => a.tokens_output.cmp(&b.tokens_output),
                         _ => std::cmp::Ordering::Equal,
                     };
                     if asc { ord } else { ord.reverse() }
@@ -412,10 +368,9 @@ fn render_breakdown(f: &mut Frame, area: Rect, app: &mut App) {
                 app.stats.by_project.sort_by(|a, b| {
                     let ord = match col {
                         0 => a.project_name.cmp(&b.project_name),
-                        1 => a.cost.partial_cmp(&b.cost).unwrap_or(std::cmp::Ordering::Equal),
-                        2 => a.sessions.cmp(&b.sessions),
-                        3 => a.tokens_input.cmp(&b.tokens_input),
-                        4 => a.tokens_output.cmp(&b.tokens_output),
+                        1 => a.sessions.cmp(&b.sessions),
+                        2 => a.tokens_input.cmp(&b.tokens_input),
+                        3 => a.tokens_output.cmp(&b.tokens_output),
                         _ => std::cmp::Ordering::Equal,
                     };
                     if asc { ord } else { ord.reverse() }
@@ -465,7 +420,6 @@ fn render_breakdown(f: &mut Frame, area: Rect, app: &mut App) {
 fn build_daily_table(app: &App) -> (Vec<Cell<'_>>, Vec<Row<'_>>, Vec<Constraint>) {
     let headers = vec![
         Cell::from("Date").style(Style::default().fg(Color::Yellow)),
-        Cell::from("Cost").style(Style::default().fg(Color::Yellow)),
         Cell::from("Sessions").style(Style::default().fg(Color::Yellow)),
         Cell::from("Tokens In").style(Style::default().fg(Color::Yellow)),
         Cell::from("Tokens Out").style(Style::default().fg(Color::Yellow)),
@@ -473,18 +427,16 @@ fn build_daily_table(app: &App) -> (Vec<Cell<'_>>, Vec<Row<'_>>, Vec<Constraint>
     let rows: Vec<Row> = app.stats.daily.iter().map(|d| {
         Row::new(vec![
             Cell::from(d.date.as_str()),
-            Cell::from(db::format_cost(d.cost)),
             Cell::from(format!("{}", d.sessions)),
             Cell::from(db::format_tokens(d.tokens_input)),
             Cell::from(db::format_tokens(d.tokens_output)),
         ])
     }).collect();
     let widths = vec![
-        Constraint::Percentage(25),
-        Constraint::Percentage(15),
-        Constraint::Percentage(15),
-        Constraint::Percentage(22),
-        Constraint::Percentage(23),
+        Constraint::Percentage(30),
+        Constraint::Percentage(18),
+        Constraint::Percentage(26),
+        Constraint::Percentage(26),
     ];
     (headers, rows, widths)
 }
@@ -492,8 +444,6 @@ fn build_daily_table(app: &App) -> (Vec<Cell<'_>>, Vec<Row<'_>>, Vec<Constraint>
 fn build_model_table(app: &App) -> (Vec<Cell<'_>>, Vec<Row<'_>>, Vec<Constraint>) {
     let headers = vec![
         Cell::from("Model").style(Style::default().fg(Color::Yellow)),
-        Cell::from("Provider").style(Style::default().fg(Color::Yellow)),
-        Cell::from("Cost").style(Style::default().fg(Color::Yellow)),
         Cell::from("Sessions").style(Style::default().fg(Color::Yellow)),
         Cell::from("Tokens In").style(Style::default().fg(Color::Yellow)),
         Cell::from("Tokens Out").style(Style::default().fg(Color::Yellow)),
@@ -501,20 +451,16 @@ fn build_model_table(app: &App) -> (Vec<Cell<'_>>, Vec<Row<'_>>, Vec<Constraint>
     let rows: Vec<Row> = app.stats.by_model.iter().map(|m| {
         Row::new(vec![
             Cell::from(m.model_id.as_str()),
-            Cell::from(m.provider_id.as_str()),
-            Cell::from(db::format_cost(m.cost)),
             Cell::from(format!("{}", m.sessions)),
             Cell::from(db::format_tokens(m.tokens_input)),
             Cell::from(db::format_tokens(m.tokens_output)),
         ])
     }).collect();
     let widths = vec![
-        Constraint::Percentage(22),
-        Constraint::Percentage(16),
-        Constraint::Percentage(12),
-        Constraint::Percentage(14),
+        Constraint::Percentage(28),
         Constraint::Percentage(18),
-        Constraint::Percentage(18),
+        Constraint::Percentage(27),
+        Constraint::Percentage(27),
     ];
     (headers, rows, widths)
 }
@@ -522,20 +468,19 @@ fn build_model_table(app: &App) -> (Vec<Cell<'_>>, Vec<Row<'_>>, Vec<Constraint>
 fn build_project_table(app: &App) -> (Vec<Cell<'_>>, Vec<Row<'_>>, Vec<Constraint>) {
     let headers = vec![
         Cell::from("Project").style(Style::default().fg(Color::Yellow)),
-        Cell::from("Cost").style(Style::default().fg(Color::Yellow)),
         Cell::from("Sessions").style(Style::default().fg(Color::Yellow)),
         Cell::from("Tokens In").style(Style::default().fg(Color::Yellow)),
         Cell::from("Tokens Out").style(Style::default().fg(Color::Yellow)),
     ];
     let rows: Vec<Row> = app.stats.by_project.iter().map(|p| {
+        let name: String = p.project_name.chars().take(30).collect();
         let name = if p.project_name.len() > 30 {
-            format!("{}…", &p.project_name[..29])
+            format!("{}…", name)
         } else {
-            p.project_name.clone()
+            name
         };
         Row::new(vec![
             Cell::from(name),
-            Cell::from(db::format_cost(p.cost)),
             Cell::from(format!("{}", p.sessions)),
             Cell::from(db::format_tokens(p.tokens_input)),
             Cell::from(db::format_tokens(p.tokens_output)),
@@ -543,10 +488,9 @@ fn build_project_table(app: &App) -> (Vec<Cell<'_>>, Vec<Row<'_>>, Vec<Constrain
     }).collect();
     let widths = vec![
         Constraint::Percentage(30),
-        Constraint::Percentage(15),
-        Constraint::Percentage(15),
-        Constraint::Percentage(20),
-        Constraint::Percentage(20),
+        Constraint::Percentage(18),
+        Constraint::Percentage(26),
+        Constraint::Percentage(26),
     ];
     (headers, rows, widths)
 }

@@ -1,8 +1,8 @@
 /target
-Cargo.lock
 *.db
 *.sqlite
 *.exe
 *.dll
 *.so
 *.dylib
+error.md
