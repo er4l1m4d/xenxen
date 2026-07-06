@@ -2,7 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
 /// Daily token limit for free tier OpenCode Zen.
-pub const DAILY_PART_LIMIT: usize = 100;
+pub const DAILY_PART_LIMIT: usize = 5000;
 
 /// Configuration file structure.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -20,7 +20,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             refresh_interval_secs: 5,
-            daily_limit_tokens: 1_000_000,
+            daily_limit_tokens: 5_000_000,
         }
     }
 }
@@ -30,7 +30,7 @@ fn default_refresh_interval() -> u64 {
 }
 
 fn default_daily_limit_tokens() -> i64 {
-    1_000_000
+    5_000_000
 }
 
 impl Config {
@@ -89,7 +89,7 @@ mod tests {
     fn test_default_config() {
         let config = Config::default();
         assert_eq!(config.refresh_interval_secs, 5);
-        assert_eq!(config.daily_limit_tokens, 1_000_000);
+        assert_eq!(config.daily_limit_tokens, 5_000_000);
     }
 
     #[test]
@@ -106,6 +106,6 @@ mod tests {
         let toml_str = "";
         let parsed: Config = toml::from_str(toml_str).unwrap();
         assert_eq!(parsed.refresh_interval_secs, 5);
-        assert_eq!(parsed.daily_limit_tokens, 1_000_000);
+        assert_eq!(parsed.daily_limit_tokens, 5_000_000);
     }
 }

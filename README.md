@@ -176,7 +176,7 @@ Located at `~/.config/xenxen/config.toml`:
 
 ```toml
 refresh_interval_secs = 5
-daily_limit_tokens = 1000000
+daily_limit_tokens = 5000000
 ```
 
 ### Fields
@@ -184,7 +184,7 @@ daily_limit_tokens = 1000000
 | Field | Default | Description |
 |-------|---------|-------------|
 | `refresh_interval_secs` | `5` | Dashboard refresh interval in seconds |
-| `daily_limit_tokens` | `1000000` | Daily token limit (input + output) for progress tracking |
+| `daily_limit_tokens` | `5000000` | Daily token limit (input + output) for progress tracking |
 
 ### Daily Limits
 

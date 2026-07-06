@@ -67,7 +67,7 @@ OpenCode DB (SQLite)
 
 ### Daily limits
 - `DAILY_PART_LIMIT = 100` — hardcoded free tier request limit
-- `daily_limit_tokens` — configurable in config.toml (default: 1M)
+- `daily_limit_tokens` — configurable in config.toml (default: 5M)
 - Progress bars: green < 70%, yellow 70-90%, red > 90%
 
 ### Refresh cycle
