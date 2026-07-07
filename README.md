@@ -188,7 +188,7 @@ daily_limit_tokens = 5000000
 
 ### Daily Limits
 
-- **Requests**: 100 per day (OpenCode Zen free tier limit, hardcoded)
+- **Requests**: 1000 per day (I don't know the exact limit because it wasn't mentioned on their official website so I am using a number I think is close to it)
 - **Tokens**: Configurable via `daily_limit_tokens` (default: 1M)
 
 ## Database detection
