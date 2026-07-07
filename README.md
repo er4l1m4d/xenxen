@@ -30,7 +30,7 @@ Reads your local OpenCode database and shows you how you're using AI — which m
 Requires Rust 1.85+ (edition 2024).
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/er4l1m4d/xenxen
 cd xenxen
 cargo build --release
 ```
